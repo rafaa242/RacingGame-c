@@ -1,0 +1,440 @@
+#include <raylib.h>
+#include <stdio.h>
+#include <math.h>
+
+void SaveRecord(double time)
+{
+    FILE *file = fopen("record.txt", "w");
+    if (file != NULL)
+    {
+        fprintf(file, "%lf", time);
+        fclose(file);
+    }
+}
+double LoadRecord()
+{
+    FILE *file = fopen("record.txt", "r");
+    double time = -1;
+
+    if (file != NULL)
+    {
+        fscanf(file, "%lf", &time);
+        fclose(file);
+    }
+
+    return time;
+}
+
+bool exitGame = false;
+
+//structure for button
+typedef struct Button {
+    Rectangle rec;
+    Color color;
+} Button;
+
+Button button_0 = {0};  //button 0(quit)
+bool button_0_clicked = false; //button clicked state
+Button button_1 = {0}; //button 1(play)
+bool button_1_clicked = false;//button clicked state
+Button button_2 = {0}; //button 2(Rules)
+bool button_2_clicked = false;//button clicked state
+
+void init_button(Button *button, Rectangle rec, Color color)
+{
+   button->rec = rec;
+   button->color = color;
+}
+
+bool is_mouse_over_button(Button button)
+{
+    return CheckCollisionPointRec(GetMousePosition(), button.rec);
+}
+
+typedef enum {
+    STATE_MENU,
+    STATE_RULES,
+    STATE_READY,
+    STATE_RACING_TRACK1
+} GameState;
+
+GameState gameState = STATE_MENU;
+
+void ResetRace(float *car_x, float *car_y, float *car_speed, float *car_rotation,int *Laps,bool *Checkpoint1Done, bool *Checkpoint2Done,bool *PassedFinishLine, bool *raceFinished,double *race_begin_time)
+{
+    *car_x = 440;
+    *car_y = 150;
+    *car_speed = 0;
+    *car_rotation = 90;
+
+    *Laps = 0;
+    *Checkpoint1Done = false;
+    *Checkpoint2Done = false;
+    *PassedFinishLine = false;
+    *raceFinished = false;
+
+    *race_begin_time = GetTime();
+}
+
+
+int main()
+{
+    const int screen_width = 900;
+    const int screen_height = 600;
+
+    InitWindow(screen_width, screen_height, "Racing Game");
+    SetExitKey(KEY_NULL);
+
+    //initialize button
+    init_button(&button_0, (Rectangle){screen_width/2 - 75, screen_height - 180, 150, 100}, RED);
+    init_button(&button_1, (Rectangle){screen_width/2 - 175, screen_height/2 , 150, 100}, RED);
+    init_button(&button_2, (Rectangle){screen_width/2 + 30, screen_height/2 , 150, 100}, RED);
+
+    SetTargetFPS(60);
+
+    float start_x = 440;
+    float start_y = 150;
+
+    int Laps = 0;
+    bool Checkpoint1Done = false;
+    bool Checkpoint2Done = false;
+    bool PassedFinishLine = false;
+    bool raceFinished = false;
+
+
+    float Checkpoint1_x = 1100;
+    float Checkpoint1_y = 1600;
+    float Checkpoint1_height = 400;
+    float Checkpoint1_width = 80;
+    float Checkpoint2_x = 60;
+    float Checkpoint2_y = 400;
+    float Checkpoint2_height = 80;
+    float Checkpoint2_width = 200;
+
+    float FinishLine_x = start_x;
+    float FinishLine_y = start_y - 125;
+    float FinishLine_height = 240;
+    float FinishLine_width = 80;
+
+
+    float car_x = 440;
+    float car_y = 150;
+    float car_width = 40;
+    float car_height = 80;
+    float car_speed = 0;
+    float car_max_speed = 500;
+    float car_rotation = +90;
+
+    double race_time;
+    double race_begin_time;
+
+    Image track_image = LoadImage("images/track1.png");
+    Texture2D track = LoadTextureFromImage(track_image);
+
+    Image track_limits_image = LoadImage("images/track1limites.png");
+    float scaleX = track_limits_image.width  / 2000.0f;
+    float scaleY = track_limits_image.height / 2000.0f;
+
+    Texture2D car_texture = LoadTexture("images/craftpix-889156-free-racing-game-kit/PNG/Car_3_Main_Positions/Car_3_01.png");
+    Rectangle car_texture_rec = {
+        .x = 0,
+        .y = 0,
+        .width = (float)car_texture.width,
+        .height = (float)car_texture.height,
+    };
+
+    Camera2D car_camera =
+    {
+        .offset = (Vector2){screen_width / 2, screen_height / 2},
+        .target = (Vector2){car_x, car_y},
+        .rotation = 0,
+        .zoom = 1.0,
+    };
+
+    double bestTime = LoadRecord();
+
+    while (!exitGame && !WindowShouldClose())
+    {
+        //PARTE LOGICA
+        switch(gameState)
+        {
+            case STATE_RACING_TRACK1:
+            {
+                float dt = GetFrameTime();
+
+                if (IsKeyDown(KEY_LEFT))
+                    car_rotation -= 200 * dt;
+                else if (IsKeyDown(KEY_RIGHT))
+                    car_rotation += 200 * dt;
+
+                if (IsKeyDown(KEY_UP))
+                {
+                    car_speed += 400 * dt;
+                    if (car_speed > car_max_speed) car_speed = car_max_speed;
+                }
+                else if (IsKeyDown(KEY_DOWN))
+                {
+                    car_speed -= 400 * dt;
+                    if (car_speed < -car_max_speed) car_speed = -car_max_speed;
+                }
+                else
+                {
+                    if (car_speed > 0)
+                    {
+                        car_speed -= 100 * dt;
+                        if (car_speed < 0) car_speed = 0;
+                    }
+                    else if (car_speed < 0)
+                    {
+                        car_speed += 100 * dt;
+                        if (car_speed > 0) car_speed = 0;
+                    }
+                }
+
+                if (car_rotation >= 360) car_rotation -= 360;
+                if (car_rotation < 0) car_rotation += 360;
+
+                float radians = PI * (car_rotation - 90) / 180;
+
+                car_x += car_speed * cosf(radians) * dt;
+                car_y += car_speed * sinf(radians) * dt;
+
+                car_camera.target = (Vector2){ car_x, car_y };
+
+                if (!Checkpoint1Done)
+                {
+                    
+                    if (car_x + car_width/2 > Checkpoint1_x && car_x + car_width/2 < Checkpoint1_x + Checkpoint1_width && car_y + car_height/2 > Checkpoint1_y && car_y + car_height/2 < Checkpoint1_y + Checkpoint1_height)
+                    {
+                        Checkpoint1Done = true;
+                    }
+                }
+                if (!Checkpoint2Done)
+                {
+                    
+                    if (car_x + car_width/2 > Checkpoint2_x && car_x + car_width/2 < Checkpoint2_x + Checkpoint2_width && car_y + car_height/2 > Checkpoint2_y && car_y + car_height/2 < Checkpoint2_y + Checkpoint2_height)
+                    {
+                        Checkpoint2Done = true;
+                    }
+                }
+                if (!PassedFinishLine  && Checkpoint1Done && Checkpoint2Done)
+                {
+                    if (car_x + car_width/2 > FinishLine_x &&
+                        car_x + car_width/2 < FinishLine_x + FinishLine_width &&
+                        car_y + car_height/2 > FinishLine_y &&
+                        car_y + car_height/2 < FinishLine_y + FinishLine_height)
+                    {
+                        Laps++;               
+                        Checkpoint1Done = false; 
+                        Checkpoint2Done = false;
+                        PassedFinishLine = true;
+                    }
+                }else{
+                    if (car_x + car_width/2 < FinishLine_x ||
+                        car_x + car_width/2 > FinishLine_x + FinishLine_width ||
+                        car_y + car_height/2 < FinishLine_y ||
+                        car_y + car_height/2 > FinishLine_y + FinishLine_height)
+                    {
+                        PassedFinishLine = false;
+                    }
+                }
+
+                int imgX = (int)((car_x + car_width  / 2) * scaleX);
+                int imgY = (int)((car_y + car_height / 2) * scaleY);
+
+                if (imgX < 0 || imgX >= track_limits_image.width ||
+                    imgY < 0 || imgY >= track_limits_image.height)
+                {
+                    car_x = start_x;
+                    car_y = start_y;
+                    car_speed = 0;
+                }
+                else
+                {
+                    Color pixel = GetImageColor(track_limits_image, imgX, imgY);
+
+                    if (pixel.r > 200 && pixel.g > 200 && pixel.b > 200)
+                    {
+                        car_x = start_x;
+                        car_y = start_y;
+                        car_speed = 0;
+                        car_rotation = +90;
+                    }
+                }
+                if (!raceFinished)
+                {
+                    race_time = GetTime() - race_begin_time;
+                }
+            if(Laps==3)
+            {
+                raceFinished = true;
+                if (bestTime < 0 || race_time < bestTime)
+                {
+                    bestTime = race_time;
+                    SaveRecord(bestTime);
+                }
+                if(IsKeyPressed(KEY_ENTER))
+                {
+                gameState = STATE_MENU;
+                }
+            }
+            }break;
+
+            case STATE_MENU:
+            {
+                if(is_mouse_over_button(button_0))
+                    button_0.color = RED;
+                else
+                    button_0.color = WHITE;
+
+                if(IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && is_mouse_over_button(button_0))
+                {
+                    exitGame = true;
+                    break;
+                }
+                if(IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && is_mouse_over_button(button_2))
+                {
+                    gameState = STATE_RULES;
+                    break;
+                }
+                if(is_mouse_over_button(button_1))
+                    button_1.color = GREEN;
+                else
+                    button_1.color = WHITE;
+
+                if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && is_mouse_over_button(button_1))
+                {
+                    ResetRace(
+                        &car_x, &car_y, &car_speed, &car_rotation,
+                        &Laps,
+                        &Checkpoint1Done, &Checkpoint2Done,
+                        &PassedFinishLine, &raceFinished, 
+                        &race_begin_time
+                    );
+
+                    gameState = STATE_READY;
+                }
+
+                if(is_mouse_over_button(button_2))
+                    button_2.color = GREEN;
+                else
+                    button_2.color = WHITE;
+
+
+            }break;
+            case STATE_RULES:
+            {
+                if (IsKeyPressed(KEY_ESCAPE))
+                    gameState = STATE_MENU;
+            } break;
+
+            case STATE_READY:
+            {
+                if (IsKeyPressed(KEY_SPACE))
+                {
+                    race_begin_time = GetTime();
+                    race_time = 0;
+                    gameState = STATE_RACING_TRACK1;
+                }
+                if(IsKeyPressed(KEY_ESCAPE))
+                    gameState = STATE_MENU;
+            } break;
+
+
+        }
+        //PARTE VISUAL
+        BeginDrawing();
+        switch(gameState)
+        {
+            case STATE_RACING_TRACK1:
+            {
+                ClearBackground((Color){93, 141, 57, 255});
+
+                BeginMode2D(car_camera);
+
+                    Rectangle source = {
+                        0,
+                        0,
+                        (float)track.width,
+                        (float)track.height
+                    };
+
+                    Rectangle dest = {
+                        0,
+                        0,
+                        2000,
+                        2000
+                    };
+
+                    Vector2 origin = { 0, 0 };
+
+                    DrawTexturePro(track, source, dest, origin, 0.0f, WHITE);
+
+                    Rectangle car_rec = {
+                        car_x + car_width / 2,
+                        car_y + car_height / 2,
+                        car_width,
+                        car_height
+                    };
+
+                    Vector2 car_origin = { car_width / 2, car_height / 2 };
+
+                    DrawTexturePro(car_texture, car_texture_rec, car_rec, car_origin, car_rotation, WHITE);
+                EndMode2D();
+                DrawText(TextFormat("Time: %.2f", race_time),20, 60,30,WHITE);
+                DrawText(TextFormat("Lap %d/3",Laps), 20, 100, 30, WHITE);
+                if(Laps==3)
+                {
+                    DrawRectangle(50, 70, screen_width - 100, screen_height - 140, Fade(BLACK, 0.75f));
+                    DrawText("FINISH!", 360, 180, 50, WHITE);
+                    DrawText(TextFormat("Your time: %.2f", race_time), 330, 260, 25, WHITE);
+                    DrawText(TextFormat("Best time: %.2f", bestTime), 330, 300, 25, WHITE);
+                    DrawText("Press ENTER to return to menu", 260, 360, 20, LIGHTGRAY);
+
+                }
+            }break;
+
+            case STATE_MENU:
+            {
+                ClearBackground(SKYBLUE);
+                DrawText("Racing Game",screen_width/2 - 200, screen_height/2 - 200, 70, BLACK);
+                DrawRectangleRec(button_0.rec, button_0.color);
+                DrawText("Quit", screen_width/2 - 30, screen_height - 150, 30, BLACK);
+                DrawRectangleRec(button_1.rec, button_1.color);
+                DrawRectangleRec(button_2.rec, button_2.color);
+                DrawText("Play", screen_width/2 - 125, screen_height/2 + 30, 30, BLACK);
+                DrawText("Rules", screen_width/2 + 65, screen_height/2 + 30, 30, BLACK);
+            
+            }break;
+
+            case STATE_RULES:
+            {
+                ClearBackground(SKYBLUE);
+                DrawText("ESC to return", 80, screen_height - 90, 18, GRAY);
+                DrawText("GAME RULES", 320, 80, 40, BLACK);
+                DrawText("GAME RULES", 320, 80, 40, BLACK);
+                DrawText("- Use ARROW KEYS to drive", 180, 160, 20, BLACK);
+                DrawText("- Stay inside the track", 180, 190, 20, BLACK);
+                DrawText("- Leaving the track resets car", 180, 220, 20, BLACK);
+                DrawText("- Pass the checkpoint first", 180, 250, 20, BLACK);
+                DrawText("- Finish line counts a lap", 180, 280, 20, BLACK);
+                DrawText("- No cheating by going backwards", 180, 310, 20, BLACK);
+                DrawText("- Beat your best time", 180, 340, 20, BLACK);
+            }break;
+            case STATE_READY:
+            {
+                ClearBackground(SKYBLUE);
+                DrawText("READY?", 365, 180, 50, BLACK);
+                if ((int)(GetTime() * 2) % 2 == 0)
+                {
+                DrawText("Press SPACE to start", 310, 260, 30, DARKGRAY);
+                }
+                DrawText("ESC to return", 80, screen_height - 90, 18, GRAY);
+            } break;
+        }
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
+}
